@@ -40,7 +40,7 @@
 uchar serno_read = 0;
 uchar serno[6];
 unsigned long cmd = 0;
-int repeat = 0;
+int repeat = 0, wait = 0;
 
 PROGMEM const char usbHidReportDescriptor[22] = {
 	0x06, 0x00, 0xff,		/* USAGE PAGE (Generic Desktop) */
@@ -126,11 +126,14 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 {
 	if (data[0] == CMD_ALL_ON) {
 		cmd = ENER_ADDR | 0xd;
+		wait = 200;
 		repeat = 5;
 	} else if (data[0] == CMD_ALL_OFF) {
 		cmd = ENER_ADDR | 0xc;
+		wait = 10;
 		repeat = 5;
 	} else if (data[0] == CMD_ON) {
+		wait = 200;
 		switch (data[1]) {
 		case 1:
 			cmd = ENER_ADDR | 0xf;
@@ -152,6 +155,7 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 			break;
 		}
 	} else if (data[0] == CMD_OFF) {
+		wait = 200;
 		switch (data[1]) {
 		case 1:
 			cmd = ENER_ADDR | 0xe;
@@ -241,9 +245,13 @@ int __attribute__((noreturn)) main(void)
 		wdt_reset();
 		usbPoll();
 		if (cmd) {
-			t433_send(cmd, 24);
-			if (--repeat == 0)
-				cmd = 0;
+			if (wait) {
+				wait--;
+			} else {
+				t433_send(cmd, 24);
+				if (--repeat == 0)
+					cmd = 0;
+			}
 		}
 	}
 }
