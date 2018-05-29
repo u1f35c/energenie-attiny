@@ -34,11 +34,11 @@
 #define CMD_OFF 0xfd
 #define CMD_SET_SERIAL 0xfa
 
-/* Energenie 24 bit address , last 4 all 0 for code */
-#define ENER_ADDR 0x123450
-
-uchar serno_read = 0;
-uchar serno[6];
+int serno_str[] = {
+	USB_STRING_DESCRIPTOR_HEADER(5),
+	'1', '2', '3', '4', '5',
+};
+uint32_t serno;
 unsigned long cmd = 0;
 int repeat = 0, wait = 0;
 
@@ -55,20 +55,41 @@ PROGMEM const char usbHidReportDescriptor[22] = {
 	0xc0				/* END_COLLECTION */
 };
 
+inline char hexdigit(int i)
+{
+	return (i < 10) ? ('0' + i) : ('A' - 10 + i);
+}
+
+inline int digithex(char i)
+{
+	if (i >= '0' && i <= '9')
+		return i - '0';
+
+	if (i >= 'A' && i <= 'F')
+		return i - 'A' + 10;
+
+	if (i >= 'a' && i <= 'f')
+		return i - 'a' + 10;
+
+	return 0;
+}
+
 void fetch_serno(void)
 {
-	if (!serno_read) {
-		eeprom_read_block(serno, 0, 6);
-		if (serno[0] == 0xff) {
-			/* If the EEPROM is blank, return a default serial # */
-			serno[0] = 'U';
-			serno[1] = 'N';
-			serno[2] = 'S';
-			serno[3] = 'E';
-			serno[4] = 'T';
-			serno[5] = 0;
-		}
-		serno_read = 1;
+	eeprom_read_block(&serno, 0, 4);
+	if (serno == 0xffffffff) {
+		/* If the EEPROM is blank, return a default serial # */
+		serno_str[1] = '1';
+		serno_str[2] = '2';
+		serno_str[3] = '3';
+		serno_str[4] = '4';
+		serno_str[5] = '5';
+	} else {
+		serno_str[1] = hexdigit((serno >> 20) & 0xF);
+		serno_str[2] = hexdigit((serno >> 16) & 0xF);
+		serno_str[3] = hexdigit((serno >> 12) & 0xF);
+		serno_str[4] = hexdigit((serno >>  8) & 0xF);
+		serno_str[5] = hexdigit((serno >>  4) & 0xF);
 	}
 }
 
@@ -76,16 +97,22 @@ void update_serno(uchar *buf, uchar len)
 {
 	uchar i;
 
+	serno = 0;
+	for (i = 0; i < 5; i++) {
+		serno |= digithex(buf[i]);
+		serno <<= 4;
+	}
+
 	/*
 	 * I have no idea why this gets stored 3 times, but the original
 	 * firmware does it.
 	 */
-	eeprom_write_block(buf, (void *) 0x00, len);
-	eeprom_write_block(buf, (void *) 0x40, len);
-	eeprom_write_block(buf, (void *) 0x80, len);
+	eeprom_write_block(&serno, (void *) 0x00, 4);
+	eeprom_write_block(&serno, (void *) 0x40, 4);
+	eeprom_write_block(&serno, (void *) 0x80, 4);
 
-	for (i = 0; i < 6; i++) {
-		serno[i] = buf[i];
+	for (i = 0; i < 5; i++) {
+		serno_str[i + 1] = buf[i];
 	}
 }
 
@@ -103,16 +130,25 @@ usbMsgLen_t usbFunctionSetup(uchar data[8])
 	return 0;
 }
 
+usbMsgLen_t usbFunctionDescriptor(usbRequest_t *rq)
+{
+	if (rq->wValue.bytes[1] == USBDESCR_STRING &&
+			rq->wValue.bytes[0] == 3) {
+		usbMsgPtr = (usbMsgPtr_t) serno_str;
+		return sizeof(serno_str);
+	}
+	return 0;
+}
+
 uchar usbFunctionRead(uchar *data, uchar len)
 {
 	uchar i;
 
 	if (len != 0) {
-		fetch_serno();
-		for (i = 0; i < 6; i++) {
-			data[i] = serno[i];
+		for (i = 0; i < 5; i++) {
+			data[i] = serno_str[i + 1];
 		}
-		data[6] = data[7] = 0;
+		data[5] = data[6] = data[7] = 0;
 		if (PORTB & (1 << PB0)) {
 			data[7] = 1;
 		}
@@ -125,30 +161,30 @@ uchar usbFunctionRead(uchar *data, uchar len)
 uchar usbFunctionWrite(uchar *data, uchar len)
 {
 	if (data[0] == CMD_ALL_ON) {
-		cmd = ENER_ADDR | 0xd;
+		cmd = serno | 0xd;
 		wait = 200;
 		repeat = 5;
 	} else if (data[0] == CMD_ALL_OFF) {
-		cmd = ENER_ADDR | 0xc;
+		cmd = serno | 0xc;
 		wait = 10;
 		repeat = 5;
 	} else if (data[0] == CMD_ON) {
 		wait = 200;
 		switch (data[1]) {
 		case 1:
-			cmd = ENER_ADDR | 0xf;
+			cmd = serno | 0xf;
 			repeat = 5;
 			break;
 		case 2:
-			cmd = ENER_ADDR | 0x7;
+			cmd = serno | 0x7;
 			repeat = 5;
 			break;
 		case 3:
-			cmd = ENER_ADDR | 0xb;
+			cmd = serno | 0xb;
 			repeat = 5;
 			break;
 		case 4:
-			cmd = ENER_ADDR | 0x3;
+			cmd = serno | 0x3;
 			repeat = 5;
 			break;
 		default:
@@ -158,19 +194,19 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 		wait = 200;
 		switch (data[1]) {
 		case 1:
-			cmd = ENER_ADDR | 0xe;
+			cmd = serno | 0xe;
 			repeat = 5;
 			break;
 		case 2:
-			cmd = ENER_ADDR | 0x6;
+			cmd = serno | 0x6;
 			repeat = 5;
 			break;
 		case 3:
-			cmd = ENER_ADDR | 0xa;
+			cmd = serno | 0xa;
 			repeat = 5;
 			break;
 		case 4:
-			cmd = ENER_ADDR | 0x2;
+			cmd = serno | 0x2;
 			repeat = 5;
 			break;
 		default:
@@ -223,6 +259,8 @@ int __attribute__((noreturn)) main(void)
 	unsigned char i;
 
 	wdt_enable(WDTO_1S);
+
+	fetch_serno();
 
 	usbInit();
 	usbDeviceDisconnect();
