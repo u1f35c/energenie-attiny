@@ -41,6 +41,7 @@ int serno_str[] = {
 uint32_t serno;
 unsigned long cmd = 0;
 int repeat = 0, wait = 0;
+uint8_t state = 0;
 
 PROGMEM const char usbHidReportDescriptor[22] = {
 	0x06, 0x00, 0xff,		/* USAGE PAGE (Generic Desktop) */
@@ -148,10 +149,8 @@ uchar usbFunctionRead(uchar *data, uchar len)
 		for (i = 0; i < 5; i++) {
 			data[i] = serno_str[i + 1];
 		}
-		data[5] = data[6] = data[7] = 0;
-		if (PORTB & (1 << PB0)) {
-			data[7] = 1;
-		}
+		data[5] = data[6] = 0;
+		data[7] = state;
 		return len;
 	}
 
@@ -162,10 +161,12 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 {
 	if (data[0] == CMD_ALL_ON) {
 		cmd = serno | 0xd;
+		state = 0xf;
 		wait = 200;
 		repeat = 5;
 	} else if (data[0] == CMD_ALL_OFF) {
 		cmd = serno | 0xc;
+		state = 0;
 		wait = 10;
 		repeat = 5;
 	} else if (data[0] == CMD_ON) {
@@ -173,45 +174,41 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 		switch (data[1]) {
 		case 1:
 			cmd = serno | 0xf;
-			repeat = 5;
 			break;
 		case 2:
 			cmd = serno | 0x7;
-			repeat = 5;
 			break;
 		case 3:
 			cmd = serno | 0xb;
-			repeat = 5;
 			break;
 		case 4:
 			cmd = serno | 0x3;
-			repeat = 5;
 			break;
 		default:
-			break;
+			return len;
 		}
+		repeat = 5;
+		state |= (1 << (data[1] - 1));
 	} else if (data[0] == CMD_OFF) {
 		wait = 200;
 		switch (data[1]) {
 		case 1:
 			cmd = serno | 0xe;
-			repeat = 5;
 			break;
 		case 2:
 			cmd = serno | 0x6;
-			repeat = 5;
 			break;
 		case 3:
 			cmd = serno | 0xa;
-			repeat = 5;
 			break;
 		case 4:
 			cmd = serno | 0x2;
-			repeat = 5;
 			break;
 		default:
-			break;
+			return len;
 		}
+		repeat = 5;
+		state &= ~(1 << (data[1] - 1));
 	} else if (data[0] == CMD_SET_SERIAL) {
 		update_serno(&data[1], 6);
 	}
