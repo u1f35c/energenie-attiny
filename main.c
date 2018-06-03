@@ -28,6 +28,8 @@
 #include "usbdrv.h"
 #include "libs-device/osccal.h"
 
+#define REPEAT_COUNT 10
+
 #define CMD_ALL_ON 0xfe
 #define CMD_ALL_OFF 0xfc
 #define CMD_ON 0xff
@@ -163,12 +165,12 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 		cmd = serno | 0xd;
 		state = 0xf;
 		wait = 200;
-		repeat = 5;
+		repeat = REPEAT_COUNT;
 	} else if (data[0] == CMD_ALL_OFF) {
 		cmd = serno | 0xc;
 		state = 0;
 		wait = 10;
-		repeat = 5;
+		repeat = REPEAT_COUNT;
 	} else if (data[0] == CMD_ON) {
 		wait = 200;
 		switch (data[1]) {
@@ -187,7 +189,7 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 		default:
 			return len;
 		}
-		repeat = 5;
+		repeat = REPEAT_COUNT;
 		state |= (1 << (data[1] - 1));
 	} else if (data[0] == CMD_OFF) {
 		wait = 200;
@@ -207,7 +209,7 @@ uchar usbFunctionWrite(uchar *data, uchar len)
 		default:
 			return len;
 		}
-		repeat = 5;
+		repeat = REPEAT_COUNT;
 		state &= ~(1 << (data[1] - 1));
 	} else if (data[0] == CMD_SET_SERIAL) {
 		update_serno(&data[1], 6);
