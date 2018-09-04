@@ -1,0 +1,89 @@
+#!/usr/bin/python3
+#
+# Copyright 2018 Jonathan McDowell <noodles@earth.li>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import glob
+import time
+import sys
+
+import hid
+import paho.mqtt.client as mqtt
+
+debug = False
+Broker = 'mqtt.host'
+prefix = 'relay-{}/cmnd/#'
+auth = {
+    'username': 'mqttuser',
+    'password': 'mqttpass',
+}
+
+
+def control_relay(device, relay=0, power=False):
+    cmnd = [0] * 8
+    if power:
+        cmnd[1] = 0xFF
+    else:
+        cmnd[1] = 0xFD
+    cmnd[2] = relay
+    device.write(cmnd)
+    time.sleep(1)
+
+
+def mqtt_message(client, device, message):
+    if debug:
+        print("message received :", str(message.payload.decode("utf-8")))
+        print("           topic :", message.topic)
+
+    relay = int(message.topic[-1])
+
+    cmnd = message.payload.decode("utf-8").lower()
+    if cmnd in ["on", "1", "true"]:
+        state = True
+    elif cmnd in ["off", "0", "false"]:
+        state = False
+    else:
+        print("Unknown command value: %s" % cmnd)
+        return
+
+    control_relay(device, relay, state)
+
+
+relay = None
+for dev in hid.enumerate(0x16c0, 0x05df):
+    if dev['manufacturer_string'] == 'www.dcttech.com':
+        relay = hid.device()
+        relay.open_path(dev['path'])
+        break
+
+if relay is None:
+    raise ValueError('Relay device not found')
+
+relay.set_nonblocking(1)
+serno = relay.get_feature_report(1, 9)
+serno_str = bytes(serno[0:5]).decode('ascii')
+
+client = mqtt.Client("P1Client")
+client.tls_set(ca_certs='/etc/ssl/certs/ca-certificates.crt')
+client.username_pw_set(auth['username'], auth['password'])
+client.user_data_set(relay)
+client.on_message = mqtt_message
+client.connect(Broker, port=8883)
+print("Subscribing to %s" % prefix.format(serno_str))
+client.subscribe(prefix.format(serno_str))
+client.loop_start()
+
+while True:
+    time.sleep(60)
